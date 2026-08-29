@@ -1,13 +1,13 @@
+import { inject, Injectable, OnDestroy, PLATFORM_ID } from '@angular/core';
+import { isPlatformServer } from '@angular/common';
 import {
   getBrowserCultureLang,
   getBrowserLang,
-  isBrowser,
   TranslocoService,
 } from '@jsverse/transloco';
 import { isFunction } from '@jsverse/utils';
 import { Subscription } from 'rxjs';
 import { skip } from 'rxjs/operators';
-import { inject, Injectable, OnDestroy } from '@angular/core';
 
 import {
   TRANSLOCO_PERSIST_LANG_CONFIG,
@@ -16,6 +16,7 @@ import {
 
 @Injectable({ providedIn: 'root' })
 export class TranslocoPersistLangService implements OnDestroy {
+  private platformId = inject(PLATFORM_ID);
   private service = inject(TranslocoService);
   private storage = inject(TRANSLOCO_PERSIST_LANG_STORAGE);
   private config = inject(TRANSLOCO_PERSIST_LANG_CONFIG);
@@ -24,17 +25,49 @@ export class TranslocoPersistLangService implements OnDestroy {
   private storageKey = this.config.storageKey || 'translocoLang';
 
   constructor() {
-    if (isBrowser()) {
-      this.init();
+    // SSR guard. Prefer `ngServerMode` (defined by the Angular CLI since v17);
+    // fall back to `isPlatformServer` for older Angular versions and MFE setups
+    // where `ngServerMode` may be missing. When `ngServerMode` is statically
+    // `true` the whole `||` folds to `true`, so `isPlatformServer` and the
+    // `PLATFORM_ID` read tree-shake out of the server bundle.
+    //
+    // This condition is intentionally copy-pasted inline into `getCachedLang()`
+    // and `clear()` rather than extracted into a getter/helper: a method call is
+    // opaque to the minifier, so it could not fold the check to `true` and strip
+    // the unreachable `this.init()` / storage code from the server build. Keep
+    // the three copies in sync; do not DRY them into a function.
+    if (
+      (typeof ngServerMode !== 'undefined' && ngServerMode) ||
+      isPlatformServer(this.platformId)
+    ) {
+      return;
     }
+
+    this.init();
   }
 
   getCachedLang(): string | null {
-    return isBrowser() ? this.storage.getItem(this.storageKey) : null;
+    // See the SSR guard in the constructor — kept inline on purpose.
+    if (
+      (typeof ngServerMode !== 'undefined' && ngServerMode) ||
+      isPlatformServer(this.platformId)
+    ) {
+      return null;
+    } else {
+      return this.storage.getItem(this.storageKey);
+    }
   }
 
   clear() {
-    isBrowser() && this.storage.removeItem(this.storageKey);
+    // See the SSR guard in the constructor — kept inline on purpose.
+    if (
+      (typeof ngServerMode !== 'undefined' && ngServerMode) ||
+      isPlatformServer(this.platformId)
+    ) {
+      return;
+    }
+
+    this.storage.removeItem(this.storageKey);
   }
 
   private updateStorageOnLangChange(): Subscription {
