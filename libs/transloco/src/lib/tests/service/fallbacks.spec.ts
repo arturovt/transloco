@@ -174,6 +174,43 @@ describe('Multiple fallbacks', () => {
       expect(service.getActiveLang()).toEqual('en');
     }));
 
+    it(`GIVEN a scope that fails through a multi-lang fallback chain to a cached lang
+        WHEN it bails out
+        THEN the whole scoped chain is cleared from failedLangs (#647)`, fakeAsync(() => {
+      const scopeLoader = class implements TranslocoLoader {
+        getTranslation(lang: string) {
+          return timer(1000).pipe(
+            map(() => {
+              if (lang.startsWith('admin/')) {
+                throw new Error('error');
+              }
+              return mockLangs[lang];
+            }),
+          );
+        }
+      };
+
+      const service = createService(
+        { prodMode: true, fallbackLang: ['es', 'it'], failedRetries: 0 },
+        { loader: scopeLoader },
+      );
+
+      // cache the last fallback lang so the scoped chain short-circuits on it
+      service.load('it').subscribe();
+      runLoader(1);
+
+      // admin/en -> admin/es both 404 -> 'it' is cached -> bail out
+      service.selectTranslation('admin').subscribe();
+      runLoader(5);
+
+      expect((service as any).failedLangs.size).toEqual(0);
+
+      // a later unrelated success must not see wasFailure and flip the lang
+      service.load('es').subscribe();
+      runLoader(1);
+      expect(service.getActiveLang()).toEqual('en');
+    }));
+
     it(`GIVEN a scoped lang that fails to load AND all fallbacks fail
     THEN the error should contain a scope misspelling hint`, fakeAsync(() => {
       const service = createService(

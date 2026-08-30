@@ -855,7 +855,16 @@ export class TranslocoService {
         // -> langChanges$ fires -> every directive re-subscribes -> `admin/en` is
         // no longer cached -> it re-fetches -> 404 -> repeat forever. So for a
         // scope, keep the cache entry and leave the active language alone.
-        this.failedLangs.delete(lang);
+        //
+        // Drop the whole scoped fallback chain (`admin/en`, `admin/es`, ...), not
+        // just the current path - a leftover entry would make the next unrelated
+        // handleSuccess report `wasFailure`, evict that path and flip the lang.
+        const scopePrefix = `${splitted.slice(0, -1).join('/')}/`;
+        this.failedLangs.forEach((failedLang) => {
+          if (failedLang.startsWith(scopePrefix)) {
+            this.failedLangs.delete(failedLang);
+          }
+        });
         return EMPTY;
       }
       this.handleSuccess(nextLang, this.getTranslation(nextLang));
