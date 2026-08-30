@@ -134,6 +134,46 @@ describe('Multiple fallbacks', () => {
       expect(service.load).toHaveBeenCalledTimes(2);
     }));
 
+    it(`GIVEN a scoped lang that fails while its fallback lang is already loaded
+        WHEN a consumer keeps re-subscribing through langChanges$
+        THEN the scope is not requested recursively (#647)`, fakeAsync(() => {
+      const scopeLoader = class implements TranslocoLoader {
+        getTranslation(lang: string) {
+          return timer(1000).pipe(
+            map(() => {
+              if (lang.startsWith('admin/')) {
+                throw new Error('error');
+              }
+              return mockLangs[lang];
+            }),
+          );
+        }
+      };
+
+      const service = createService(
+        { prodMode: true, fallbackLang: 'es', failedRetries: 0 },
+        { loader: scopeLoader },
+      );
+
+      // 'es' (the fallback) loads fine and gets cached
+      service.load('es').subscribe();
+      runLoader(1);
+
+      const getTranslation = vi.spyOn(
+        (service as any).loader as TranslocoLoader,
+        'getTranslation',
+      );
+
+      service.selectTranslation('admin').subscribe();
+      runLoader(20);
+
+      const scopeRequests = getTranslation.mock.calls.filter(([lang]) =>
+        (lang as string).startsWith('admin/'),
+      ).length;
+      expect(scopeRequests).toBeLessThanOrEqual(1);
+      expect(service.getActiveLang()).toEqual('en');
+    }));
+
     it(`GIVEN a scoped lang that fails to load AND all fallbacks fail
     THEN the error should contain a scope misspelling hint`, fakeAsync(() => {
       const service = createService(
